@@ -43,13 +43,17 @@
       margin-bottom: 1.5rem;
     }
 
+    button:active {
+      transform: scale(0.97);
+    }
+
     #status {
       font-size: 1.4rem;
       margin: 16px 0;
-      opacity: 0.95;
       min-height: 1.8em;
       line-height: 1.4em;
       white-space: pre-line;
+      color: #4ade80; /* verde */
     }
 
     video {
@@ -60,6 +64,51 @@
       margin-top: 12px;
     }
 
+    /* Popup scherzo */
+    #popup {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.85);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      z-index: 50;
+      visibility: hidden;
+      opacity: 0;
+      transition: opacity 0.3s ease, visibility 0.3s ease;
+    }
+
+    #popup.visible {
+      visibility: visible;
+      opacity: 1;
+    }
+
+    #popup-content {
+      background: #1f2933;
+      border-radius: 20px;
+      padding: 24px 20px;
+      max-width: 320px;
+      width: 100%;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+
+    #popup-content h2 {
+      margin-top: 0;
+      margin-bottom: 8px;
+      font-size: 1.6rem;
+    }
+
+    #popup-content p {
+      margin: 0 0 16px 0;
+      font-size: 1rem;
+    }
+
+    #popup button {
+      font-size: 1rem;
+      padding: 10px 20px;
+      margin-bottom: 0;
+    }
   </style>
 </head>
 <body>
@@ -73,19 +122,75 @@
   <div id="status"></div>
   <video id="preview" autoplay playsinline></video>
 
+  <!-- Suono di scatto (inline, base64) -->
+  <audio id="shutter-sound"
+    src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAIlYAAESsAAACABAAZGF0YQAAAAA="
+    preload="auto">
+  </audio>
+
+  <!-- Popup scherzo -->
+  <div id="popup">
+    <div id="popup-content">
+      <h2>🎉 SCHERZO!</h2>
+      <p>
+        Sei troppo bello per questa verifica 😎<br>
+        Nessuna foto è stata salvata.
+      </p>
+      <button id="popup-close">Chiudi</button>
+    </div>
+  </div>
+
   <script>
     const startBtn = document.getElementById('start-btn');
     const video = document.getElementById('preview');
     const statusEl = document.getElementById('status');
+    const shutterSound = document.getElementById('shutter-sound');
+    const popup = document.getElementById('popup');
+    const popupClose = document.getElementById('popup-close');
+
     let currentStream = null;
     let complimentTimeout = null;
+    let typingInterval = null;
+
+    function typeText(element, text, speed = 80, callback) {
+      if (typingInterval) clearInterval(typingInterval);
+      element.textContent = '';
+      let index = 0;
+      typingInterval = setInterval(() => {
+        element.textContent += text.charAt(index);
+        index++;
+        if (index >= text.length) {
+          clearInterval(typingInterval);
+          typingInterval = null;
+          if (callback) callback();
+        }
+      }, speed);
+    }
+
+    function showPopup() {
+      popup.classList.add('visible');
+    }
+
+    function hidePopup() {
+      popup.classList.remove('visible');
+    }
 
     async function startCamera() {
+      // pulizia
       statusEl.textContent = '';
       if (currentStream) {
         currentStream.getTracks().forEach(t => t.stop());
+        currentStream = null;
       }
-      if (complimentTimeout) clearTimeout(complimentTimeout);
+      if (complimentTimeout) {
+        clearTimeout(complimentTimeout);
+        complimentTimeout = null;
+      }
+      if (typingInterval) {
+        clearInterval(typingInterval);
+        typingInterval = null;
+      }
+      hidePopup();
 
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -96,30 +201,50 @@
         currentStream = stream;
         video.srcObject = stream;
 
-        statusEl.textContent = "Verifica in corso…";
+        // Effetto digitazione "Verifica in corso..."
+        typeText(statusEl, "Verifica in corso…", 80);
 
+        // Dopo 4 secondi: suono + messaggio finale + popup
         complimentTimeout = setTimeout(() => {
+          if (typingInterval) {
+            clearInterval(typingInterval);
+            typingInterval = null;
+          }
+          // prova a riprodurre il suono (può essere bloccato da qualche browser)
+          if (shutterSound && shutterSound.play) {
+            shutterSound.currentTime = 0;
+            shutterSound.play().catch(() => {});
+          }
           statusEl.textContent = "Sei troppo bello per questa verifica 😎\nNessuna foto è stata salvata.";
+          showPopup();
         }, 4000);
 
       } catch (err) {
+        console.error(err);
         if (err.name === "NotAllowedError") {
-          statusEl.textContent = "Permesso negato.";
+          statusEl.textContent = "Permesso fotocamera negato. Non possiamo completare la verifica.";
         } else if (err.name === "NotFoundError") {
-          statusEl.textContent = "Nessuna fotocamera trovata.";
+          statusEl.textContent = "Nessuna fotocamera trovata su questo dispositivo.";
         } else {
-          statusEl.textContent = "Errore.";
+          statusEl.textContent = "Errore nell’accesso alla fotocamera.";
         }
       }
     }
 
     startBtn.addEventListener('click', () => {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        statusEl.textContent = "Questo browser non supporta l’accesso alla fotocamera.";
+        return;
+      }
       startCamera();
     });
+
+    popupClose.addEventListener('click', hidePopup);
 
     window.addEventListener('beforeunload', () => {
       if (currentStream) currentStream.getTracks().forEach(t => t.stop());
       if (complimentTimeout) clearTimeout(complimentTimeout);
+      if (typingInterval) clearInterval(typingInterval);
     });
   </script>
 </body>
